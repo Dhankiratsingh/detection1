@@ -1,4 +1,13 @@
 import streamlit as st
+import tensorflow as tf
+import os
+import cv2
+import numpy as np
+
+IMG_SIZE = 224
+MAX_SEQ_LENGTH = 20
+NUM_FEATURES = 2048
+
 @st.cache_resource
 def load_your_models():
     """Load trained weights"""
@@ -41,3 +50,16 @@ def load_your_models():
 
     model.compile("binary_crossentropy", "adam", ["accuracy"])
     return feature_extractor, model
+
+st.title("Deepfake Detection App")
+st.write("App is ready! Please upload a video to test.")
+
+uploaded_file = st.file_uploader("Upload Video", type=["mp4", "mov", "avi"])
+
+if uploaded_file is not None:
+    st.info("Model processing logic will go here. Model is loaded in the background!")
+    try:
+        feature_extractor, model = load_your_models()
+        st.success("Models loaded successfully!")
+    except Exception as e:
+        st.error(f"Error loading models: {e}")
