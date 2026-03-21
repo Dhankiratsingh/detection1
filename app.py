@@ -11,15 +11,8 @@ arch = platform.machine()
 st.info(f"Detected Environment: Python {python_version} on {arch} architecture")
 
 if sys.version_info >= (3, 12):
-    st.error(f"🛑 CRITICAL ERROR: Streamlit Cloud built your app using Python {python_version}.")
-    st.error("Google has not released stable TensorFlow packages that work on Python 3.12 or 3.13 for Streamlit Cloud.")
-    st.warning("### Fix It In 5 Steps:")
-    st.markdown("1. Go to your Streamlit App Dashboard.")
-    st.markdown("2. Click the three dots (⋮) and **Delete** this app.")
-    st.markdown("3. Click **Deploy a New App** and type your repo: `Dhankiratsingh/detection`")
-    st.markdown("4. **CRITICAL:** At the bottom, click **Advanced Settings...** and choose **Python 3.11** !!")
-    st.markdown("5. Click Deploy!")
-    st.stop()
+    st.warning(f"⚠️ Note: You are running Python {python_version}. If you are deploying to Streamlit Cloud and face deployment errors, you may need to recreate your app using Python 3.11 in the Advanced Settings.")
+
 
 @st.cache_resource
 def install_heavy_packages():
