@@ -1,0 +1,7 @@
+venv/
+production_weights/
+test_videos/
+train_sample_videos/
+__pycache__/
+*.mp4
+*.h5
