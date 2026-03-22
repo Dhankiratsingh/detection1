@@ -122,20 +122,20 @@ with st.spinner("Processing video..."):
         # Step 1: Process frames
         frames, mask = process_video_frames(temp_video_path)
 
-        # Step 2: Extract features (BATCH — FIXED)
+        # Step 2: Extract features (BATCH)
         features = feature_extractor.predict(frames, verbose=0)
 
         # Step 3: Prepare input
         features = np.expand_dims(features, axis=0)
         mask = np.expand_dims(mask, axis=0)
 
-        # Step 4: Predict
+        # Step 4: Prediction
         prediction = model.predict([features, mask], verbose=0)[0][0]
 
-        # DEBUG (very useful)
+        # Debug
         st.write("Raw prediction:", float(prediction))
 
-        # Step 5: Correct label + confidence
+        # Step 5: Label + confidence
         if prediction > 0.5:
             label = "FAKE"
             confidence = prediction
@@ -143,7 +143,7 @@ with st.spinner("Processing video..."):
             label = "REAL"
             confidence = 1 - prediction
 
-        # Step 6: Display result
+        # Step 6: Display
         if label == "FAKE":
             st.error(f"🚨 Prediction: FAKE (Confidence: {confidence:.2f})")
         else:
