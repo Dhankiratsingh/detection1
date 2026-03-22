@@ -1,115 +1,87 @@
 import streamlit as st
-import os
-import sys
-import platform
-import subprocess
-
-st.title("Deepfake Detection App Simulator")
-
-python_version = sys.version.split()[0]
-arch = platform.machine()
-st.info(f"Detected Environment: Python {python_version} on {arch} architecture")
-
-# If on Streamlit Cloud (Linux) and running unsupported Python > 3.11
-if sys.platform != "win32" and sys.version_info >= (3, 12):
-    st.error(f"🛑 CRITICAL ERROR: Streamlit Cloud built your app using Python {python_version}.")
-    st.error("Google has not released stable TensorFlow packages that work on Python 3.12 or 3.13 for Streamlit Cloud.")
-    st.warning("### Fix It In 5 Steps:")
-    st.markdown("1. Go to your Streamlit App Dashboard.")
-    st.markdown("2. Click the three dots (⋮) and **Delete** this app.")
-    st.markdown("3. Click **Deploy a New App** and type your repo: `Dhankiratsingh/detection`")
-    st.markdown("4. **CRITICAL:** At the bottom, click **Advanced Settings...** and choose **Python 3.11** !!")
-    st.markdown("5. Click Deploy!")
-    st.stop()
-
-class DummyResult:
-    returncode = 0
-    stdout = "Skipped pip install (local environment)"
-    stderr = ""
-
-@st.cache_resource
-def install_heavy_packages():
-    # Only run the heavy pip installer on Streamlit Community Cloud (Linux)!
-    if sys.platform == "win32":
-        return DummyResult()
-        
-    # Safe fallback if ARM64
-    tf_pkg = "tensorflow" if arch != "aarch64" else "tensorflow-aarch64"
-    out = subprocess.run(
-        [sys.executable, "-m", "pip", "install", tf_pkg, "opencv-python-headless", "numpy", "--no-cache-dir"],
-        capture_output=True, text=True
-    )
-    return out
-
-with st.spinner("Initializing Deepfake Weights & ML Libraries (Takes ~1 minute). Do not refresh..."):
-    install_result = install_heavy_packages()
-
-if install_result.returncode != 0:
-    st.error("There was a severe error installing dependencies!")
-    st.code(install_result.stderr + "\n" + install_result.stdout)
-    st.stop()
-else:
-    st.success("System initialized successfully!")
-
-import tensorflow as tf
 import cv2
 import numpy as np
+import os
+import tensorflow as tf
+
+# Constants (same as training)
 IMG_SIZE = 224
 MAX_SEQ_LENGTH = 20
 NUM_FEATURES = 2048
+MODEL_PATH = "production_weights/gru_model_complete.h5"
 
-@st.cache_resource
-def load_your_models():
-    """Load trained weights"""
+# Load your trained model
+model = tf.keras.models.load_model(MODEL_PATH)
+
+# Build feature extractor (same as training)
+def build_feature_extractor():
     base_model = tf.keras.applications.ResNet50(
         weights="imagenet", include_top=False, pooling="avg",
         input_shape=(IMG_SIZE, IMG_SIZE, 3)
     )
     inputs = tf.keras.Input((IMG_SIZE, IMG_SIZE, 3))
     x = tf.keras.applications.resnet50.preprocess_input(inputs)
-    feature_extractor = tf.keras.Model(inputs, base_model(x))
+    outputs = base_model(x)
+    return tf.keras.Model(inputs, outputs)
 
-    frame_input = tf.keras.layers.Input((MAX_SEQ_LENGTH, NUM_FEATURES))
-    mask_input = tf.keras.layers.Input((MAX_SEQ_LENGTH,), dtype="bool")
-    x = tf.keras.layers.Bidirectional(
-        tf.keras.layers.GRU(16, return_sequences=True, kernel_regularizer=tf.keras.regularizers.l2(0.01))
-    )(frame_input, mask=mask_input)
-    x = tf.keras.layers.Bidirectional(
-        tf.keras.layers.GRU(8, kernel_regularizer=tf.keras.regularizers.l2(0.01))
-    )(x)
-    x = tf.keras.layers.Dropout(0.5)(x)
-    x = tf.keras.layers.Dense(8, activation="relu")(x)
-    output = tf.keras.layers.Dense(1, activation="sigmoid")(x)
-    model = tf.keras.Model([frame_input, mask_input], output)
+feature_extractor = build_feature_extractor()
 
-    # Use current working directory instead of __file__
-    base_dir = os.getcwd()
-    weights_dir = os.path.join(base_dir, "production_weights")
-    feature_path = os.path.join(weights_dir, "feature_extractor_weights.h5")
-    model_path = os.path.join(weights_dir, "gru_model_weights.h5")
+# Video processing functions (same as training)
+def square_crop_frame(image):
+    h, w = image.shape[:2]
+    size = min(h, w)
+    start_x, start_y = (w - size) // 2, (h - size) // 2
+    return image[start_y:start_y+size, start_x:start_x+size]
 
-    if not os.path.exists(feature_path):
-        st.error(f"❌ Missing {feature_path}")
+def process_video_frames(video_path):
+    cap = cv2.VideoCapture(video_path)
+    frames = []
+    for _ in range(MAX_SEQ_LENGTH):
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frame = square_crop_frame(frame)
+        frame = cv2.resize(frame, (IMG_SIZE, IMG_SIZE))
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frames.append(frame)
+    cap.release()
+
+    orig_len = len(frames)
+    if orig_len == 0:
+        raise ValueError("No frames extracted from video.")
+
+    if orig_len < MAX_SEQ_LENGTH:
+        pad_frames = np.repeat(frames[-1:], MAX_SEQ_LENGTH - orig_len, axis=0)
+        frames += list(pad_frames)
     else:
-        feature_extractor.load_weights(feature_path)
+        frames = frames[:MAX_SEQ_LENGTH]
 
-    if not os.path.exists(model_path):
-        st.error(f"❌ Missing {model_path}")
-    else:
-        model.load_weights(model_path)
+    mask = np.zeros((MAX_SEQ_LENGTH,), dtype=bool)
+    mask[:orig_len] = True
 
-    model.compile("binary_crossentropy", "adam", ["accuracy"])
-    return feature_extractor, model
+    return np.array(frames), mask
 
-st.title("Deepfake Detection App")
-st.write("App is ready! Please upload a video to test.")
+# Streamlit UI
+st.title("🎥 Deepfake Detector")
+st.write("Upload a video and get a prediction if it is REAL or FAKE.")
 
-uploaded_file = st.file_uploader("Upload Video", type=["mp4", "mov", "avi"])
+uploaded_file = st.file_uploader("Upload a video file", type=["mp4", "avi", "mov"])
 
 if uploaded_file is not None:
-    st.info("Model processing logic will go here. Model is loaded in the background!")
-    try:
-        feature_extractor, model = load_your_models()
-        st.success("Models loaded successfully!")
-    except Exception as e:
-        st.error(f"Error loading models: {e}")
+    temp_video_path = "temp_video.mp4"
+    with open(temp_video_path, "wb") as f:
+        f.write(uploaded_file.read())
+
+    with st.spinner("Processing video..."):
+        try:
+            frames, mask = process_video_frames(temp_video_path)
+            features = feature_extractor.predict(frames, verbose=0)
+            features = np.expand_dims(features, 0)  # Add batch dimension
+            mask = np.expand_dims(mask, 0)
+            prediction = model.predict([features, mask])[0][0]
+            label = "FAKE" if prediction > 0.5 else "REAL"
+            st.success(f"Prediction: {label} (Confidence: {prediction:.2f})")
+        except Exception as e:
+            st.error(f"Error: {e}")
+        finally:
+            os.remove(temp_video_path)
